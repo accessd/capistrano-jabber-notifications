@@ -30,6 +30,7 @@ Add into capistrano configuration:
     set :jabber_server, 'jabbim.cz'
     set :jabber_password, 'superSecretPassword'
     set :jabber_group, []
+    set :jabber_conference, 'dev@jabbim.cz/capistrano'
     set :jabber_members, ["developer0@netbrick.cz", "developer1@netbrick.cz"]
 
 

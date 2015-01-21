@@ -2,6 +2,7 @@
 
 require 'xmpp4r'
 require 'xmpp4r/roster/helper/roster'
+require 'xmpp4r/muc/helper/simplemucclient'
 require "capistrano/jabber/notifications/version"
 
 module Capistrano
@@ -32,7 +33,7 @@ module Capistrano
         private
 
         def git_log_revisions
-          current, real = variables[:current_revision][0,7], variables[:real_revision][0,7]
+          current, real = variables[:current_revision][0,7], variables[:real_revision]
 
           if current == real
             "GIT: No changes ..."
@@ -48,12 +49,11 @@ module Capistrano
 
         def send_jabber_message(action, completed = false)
           msg = []
-          msg << "#{completed ? 'Completed' : 'Started'} #{action} on #{variables[:stage]} by #{username}"
+          msg << "#{completed ? 'Completed' : 'Started'} #{action} on #{variables[:server_name]} by #{username}"
           msg << "Time #{Time.now.to_s}"
           msg << "Application #{variables[:application]}"
           msg << "Branch #{variables[:branch]}"
           msg << "Revision #{options[:real_revision]}"
-          msg << "Release name #{options[:release_name]}"
           msg << git_log_revisions if variables[:source].is_a?(Capistrano::Deploy::SCM::Git)
           msg = msg.join("\r\n")
 
@@ -62,6 +62,7 @@ module Capistrano
           client.auth(options[:password].to_s)
           notification_group = options[:group].to_s
           notification_list = options[:members]
+          conference = options[:conference]
 
           roster = ::Jabber::Roster::Helper.new(client)
 
@@ -69,17 +70,19 @@ module Capistrano
           roster.add_query_callback { |iq| mainthread.wakeup }
           Thread.stop
 
-          my_muc = Jabber::MUC::SimpleMUCClient.new(my_client)
-          my_muc.join(Jabber::JID.new(notification_group))
+          unless conference.empty?
+            my_muc = ::Jabber::MUC::SimpleMUCClient.new(client)
+            my_muc.join(::Jabber::JID.new(conference))
 
-          m = ::Jabber::Message.new(nil, msg).set_type(:normal).set_id('1').set_subject('deploy')
-          my_muc.send(m)
+            m = ::Jabber::Message.new(nil, msg).set_subject('deploy')
+            my_muc.send(m)
+          end
 
-          # roster.find_by_group(notification_group).each {|item|
-          #   client.send(item.jid)
-          #   m = ::Jabber::Message.new(item.jid, msg).set_type(:normal).set_id('1').set_subject('deploy')
-          #   client.send(m)
-          # }
+          roster.find_by_group(notification_group).each {|item|
+            client.send(item.jid)
+            m = ::Jabber::Message.new(item.jid, msg).set_type(:normal).set_id('1').set_subject('deploy')
+            client.send(m)
+          }
 
           notification_list.each { |member|
             client.send(member)
@@ -111,6 +114,7 @@ Capistrano::Configuration.instance(:must_exist).load do
             server:   fetch(:jabber_server),
             password: fetch(:jabber_password),
             group:    fetch(:jabber_group),
+            conference:    fetch(:jabber_conference),
             members:  fetch(:jabber_members),
             real_revision: fetch(:real_revision),
             release_name: fetch(:release_name),
