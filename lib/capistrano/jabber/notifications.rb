@@ -54,7 +54,6 @@ module Capistrano
           msg << "Application #{variables[:application]}"
           msg << "Branch #{variables[:branch]}"
           msg << "Revision #{options[:real_revision]}"
-          msg << git_log_revisions if variables[:source].is_a?(Capistrano::Deploy::SCM::Git)
           msg = msg.join("\r\n")
 
           client = ::Jabber::Client.new(options[:uid].to_s)
