@@ -69,11 +69,17 @@ module Capistrano
           roster.add_query_callback { |iq| mainthread.wakeup }
           Thread.stop
 
-          roster.find_by_group(notification_group).each {|item|
-            client.send(item.jid)
-            m = ::Jabber::Message.new(item.jid, msg).set_type(:normal).set_id('1').set_subject('deploy')
-            client.send(m)
-          }
+          my_muc = Jabber::MUC::SimpleMUCClient.new(my_client)
+          my_muc.join(Jabber::JID.new(notification_group))
+
+          m = ::Jabber::Message.new(nil, msg).set_type(:normal).set_id('1').set_subject('deploy')
+          my_muc.send(m)
+
+          # roster.find_by_group(notification_group).each {|item|
+          #   client.send(item.jid)
+          #   m = ::Jabber::Message.new(item.jid, msg).set_type(:normal).set_id('1').set_subject('deploy')
+          #   client.send(m)
+          # }
 
           notification_list.each { |member|
             client.send(member)
