@@ -1,13 +1,45 @@
 # -*- encoding : utf-8 -*-
 
-require 'xmpp4r'
-require 'xmpp4r/roster/helper/roster'
-require 'xmpp4r/muc/helper/simplemucclient'
+require 'blather/client/dsl'
 require "capistrano/jabber/notifications/version"
 
 module Capistrano
   module Jabber
     module Notifications
+
+      module MUC
+        extend Blather::DSL
+        attr_accessor :conference, :uid, :msg
+
+        def self.send_message(msg)
+          @msg = msg
+          EM.run do
+            client.run
+            EM.add_timer(5) do
+              EM.stop
+            end
+          end
+        end
+
+        def self.stop
+          EM.stop
+        end
+
+        def self.configure(conference, uid)
+          @conference = conference
+          @uid = uid
+        end
+
+        when_ready do
+          join @conference, @uid
+
+          echo = Blather::Stanza::Message.new
+          echo.to = @conference
+          echo.body = @msg
+          echo.type = 'groupchat'
+          client.write echo
+        end
+      end
 
       class << self
 
@@ -48,53 +80,22 @@ module Capistrano
         end
 
         def send_jabber_message(action, completed = false)
-          msg = []
-          msg << "#{completed ? 'Completed' : 'Started'} #{action} on #{variables[:server_name]} by #{username}"
-          msg << "Time #{Time.now.to_s}"
-          msg << "Application #{variables[:application]}"
-          msg << "Branch #{variables[:branch]}"
-          msg << "Revision #{options[:real_revision]}"
-          msg = msg.join("\r\n")
+          app_name = variables[:repository][/\/([a-z]*)\.git/, 1]
+          msg = "#{username} #{completed ? 'completed' : 'started'} #{action} #{app_name} on #{variables[:server_name]} at #{Time.now.strftime('%H:%M')} (#{variables[:branch]}@#{options[:real_revision][0, 7]})".gsub("\n", '')
 
-          client = ::Jabber::Client.new(options[:uid].to_s)
-          client.connect(options[:server].to_s)
-          client.auth(options[:password].to_s)
           notification_group = options[:group].to_s
           notification_list = options[:members]
           conference = options[:conference]
 
-          roster = ::Jabber::Roster::Helper.new(client)
+          MUC.setup "#{options[:uid]}@#{options[:server]}", options[:password], options[:server]
+          MUC.configure(conference, options[:uid])
+          MUC.send_message(msg)
 
-          mainthread = Thread.current
-          roster.add_query_callback { |iq| mainthread.wakeup }
-          Thread.stop
-
-          unless conference.empty?
-            my_muc = ::Jabber::MUC::SimpleMUCClient.new(client)
-            my_muc.join(::Jabber::JID.new(conference))
-
-            m = ::Jabber::Message.new(nil, msg).set_subject('deploy')
-            my_muc.send(m)
-          end
-
-          roster.find_by_group(notification_group).each {|item|
-            client.send(item.jid)
-            m = ::Jabber::Message.new(item.jid, msg).set_type(:normal).set_id('1').set_subject('deploy')
-            client.send(m)
-          }
-
-          notification_list.each { |member|
-            client.send(member)
-            m = ::Jabber::Message.new(member, msg).set_type(:normal).set_id('1').set_subject('deploy')
-            client.send(m)
-          }
-
-          client.close
           true
         end
 
         def username
-          @username ||= [`whoami`, `hostname`].map(&:strip).join('@')
+          @username ||= `whoami`
         end
       end
     end
